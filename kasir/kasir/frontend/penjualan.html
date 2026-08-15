@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Penjualan - Kasir Toko</title>
+<link rel="stylesheet" href="assets/css/style.css">
+</head>
+<body>
+<script>window.CURRENT_PAGE = 'penjualan.html';</script>
+<div class="app">
+  <aside class="sidebar" id="sidebar">
+    <div class="sidebar-brand">
+      <strong>Kasir Toko</strong>
+      <span id="sidebarRoleLabel"></span>
+    </div>
+    <nav id="sidebarNav"></nav>
+    <div class="sidebar-footer">
+      <div class="sidebar-user" id="sidebarUser"></div>
+      <button class="btn btn-danger btn-block" id="logoutBtn">Keluar</button>
+    </div>
+  </aside>
+
+  <main class="main">
+    <div class="topbar">
+      <div style="display:flex; align-items:center; gap:12px;">
+        <button class="hamburger" id="hamburger">Menu</button>
+        <div>
+          <h2>Penjualan</h2>
+          <p>Pilih barang untuk memulai transaksi</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="filter-row">
+      <input type="text" id="searchInput" placeholder="Cari barang...">
+    </div>
+
+    <div class="grid" style="grid-template-columns: 1fr 340px; align-items:start;">
+      <div class="product-grid" id="productGrid">
+        <p style="color:var(--text-muted);">Memuat barang...</p>
+      </div>
+
+      <div class="cart-panel">
+        <h3 style="margin-top:0;">Keranjang</h3>
+        <div id="cartItems">
+          <p style="color:var(--text-muted); font-size:13px;" id="emptyCartMsg">Belum ada barang dipilih.</p>
+        </div>
+
+        <div class="cart-total-row big">
+          <span>Total</span>
+          <span id="cartTotal">Rp 0</span>
+        </div>
+
+        <div class="field" style="margin-top:14px;">
+          <label>Uang Diberikan Pelanggan</label>
+          <input type="number" id="uangDibayar" min="0" placeholder="0">
+        </div>
+
+        <div class="cart-total-row">
+          <span>Kembalian</span>
+          <span id="kembalianDisplay" style="font-weight:700; color:var(--success);">Rp 0</span>
+        </div>
+
+        <button class="btn btn-primary btn-block" style="margin-top:14px;" id="btnCheckout" disabled>Proses Transaksi</button>
+      </div>
+    </div>
+  </main>
+</div>
+
+<!-- Struk Modal -->
+<div class="modal-overlay" id="receiptModal">
+  <div class="modal-box">
+    <div class="receipt" id="receiptContent"></div>
+    <div class="modal-actions">
+      <button class="btn btn-outline" style="flex:1" onclick="window.print()">Cetak</button>
+      <button class="btn btn-primary" style="flex:1" id="btnCloseReceipt">Transaksi Baru</button>
+    </div>
+  </div>
+</div>
+
+<script src="assets/js/config.js"></script>
+<script src="assets/js/app.js"></script>
+<script>
+let allBarang = [];
+let cart = {}; // barang_id -> { barang, qty }
+
+async function loadBarang(search = '') {
+  const url = 'api/barang_list.php' + (search ? '?search=' + encodeURIComponent(search) : '');
+  const res = await apiJson(url);
+  const grid = document.getElementById('productGrid');
+  if (!res.success) {
+    grid.innerHTML = `<div class="empty-state" style="grid-column:1/-1;">Gagal memuat barang.</div>`;
+    toast(res.message || 'Gagal memuat barang.', 'error');
+    return;
+  }
+  if (res.data.length === 0) {
+    grid.innerHTML = `<div class="empty-state" style="grid-column:1/-1;">Tidak ada barang ditemukan.</div>`;
+    return;
+  }
+  allBarang = res.data;
+  renderProducts();
+}
+
+function renderProducts() {
+  const grid = document.getElementById('productGrid');
+  grid.innerHTML = allBarang.map(b => {
+    const outOfStock = parseInt(b.stok) <= 0;
+    return `
+    <div class="product-card ${outOfStock ? 'disabled' : ''}" onclick="${outOfStock ? '' : `addToCart(${b.id})`}">
+      ${b.foto ? `<img src="${uploadUrl(b.foto)}">` : `<div class="noimg">No image</div>`}
+      <div class="info">
+        <div class="name">${escapeHtml(b.nama_barang)}</div>
+        <div class="price">${formatRupiah(b.harga_jual)}</div>
+        <div class="stok">${outOfStock ? 'Stok habis' : 'Stok: ' + b.stok}</div>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function escapeHtml(str) {
+  const div = document.createElement('div');
+  div.textContent = str;
+  return div.innerHTML;
+}
+
+window.addToCart = function (id) {
+  const barang = allBarang.find(b => b.id == id);
+  if (!barang) return;
+  const currentQty = cart[id] ? cart[id].qty : 0;
+  if (currentQty + 1 > barang.stok) {
+    toast('Stok tidak mencukupi.', 'error');
+    return;
+  }
+  if (!cart[id]) cart[id] = { barang, qty: 0 };
+  cart[id].qty += 1;
+  renderCart();
+};
+
+window.changeQty = function (id, delta) {
+  if (!cart[id]) return;
+  const newQty = cart[id].qty + delta;
+  if (newQty <= 0) {
+    delete cart[id];
+  } else if (newQty > cart[id].barang.stok) {
+    toast('Stok tidak mencukupi.', 'error');
+    return;
+  } else {
+    cart[id].qty = newQty;
+  }
+  renderCart();
+};
+
+function renderCart() {
+  const container = document.getElementById('cartItems');
+  const ids = Object.keys(cart);
+  const emptyMsg = document.getElementById('emptyCartMsg');
+  const checkoutBtn = document.getElementById('btnCheckout');
+
+  if (ids.length === 0) {
+    container.innerHTML = '';
+    container.appendChild(emptyMsg);
+    checkoutBtn.disabled = true;
+  } else {
+    container.innerHTML = ids.map(id => {
+      const item = cart[id];
+      const subtotal = item.barang.harga_jual * item.qty;
+      return `
+        <div class="cart-item">
+          <div>
+            <div class="cart-name">${escapeHtml(item.barang.nama_barang)}</div>
+            <div class="cart-sub">${formatRupiah(item.barang.harga_jual)} × ${item.qty} = ${formatRupiah(subtotal)}</div>
+          </div>
+          <div class="qty-control">
+            <button type="button" onclick="changeQty(${id}, -1)">−</button>
+            <span>${item.qty}</span>
+            <button type="button" onclick="changeQty(${id}, 1)">+</button>
+          </div>
+        </div>
+      `;
+    }).join('');
+    checkoutBtn.disabled = false;
+  }
+
+  updateTotals();
+}
+
+function getTotal() {
+  return Object.values(cart).reduce((sum, item) => sum + (item.barang.harga_jual * item.qty), 0);
+}
+
+function updateTotals() {
+  const total = getTotal();
+  document.getElementById('cartTotal').textContent = formatRupiah(total);
+  const uang = parseFloat(document.getElementById('uangDibayar').value) || 0;
+  const kembalian = uang - total;
+  const kEl = document.getElementById('kembalianDisplay');
+  kEl.textContent = formatRupiah(Math.max(kembalian, 0));
+  kEl.style.color = kembalian < 0 ? 'var(--danger)' : 'var(--success)';
+}
+
+document.getElementById('uangDibayar').addEventListener('input', updateTotals);
+
+let searchTimer;
+document.getElementById('searchInput').addEventListener('input', (e) => {
+  clearTimeout(searchTimer);
+  searchTimer = setTimeout(() => loadBarang(e.target.value), 300);
+});
+
+document.getElementById('btnCheckout').addEventListener('click', async () => {
+  const total = getTotal();
+  const uang = parseFloat(document.getElementById('uangDibayar').value) || 0;
+  if (uang < total) {
+    toast('Uang yang diberikan kurang dari total belanja.', 'error');
+    return;
+  }
+  const items = Object.entries(cart).map(([barang_id, item]) => ({ barang_id: parseInt(barang_id), qty: item.qty }));
+
+  const btn = document.getElementById('btnCheckout');
+  btn.disabled = true; btn.textContent = 'Memproses...';
+
+  const res = await apiJson('api/penjualan_create.php', 'POST', { items, uang_dibayar: uang });
+
+  btn.disabled = false; btn.textContent = 'Proses Transaksi';
+
+  if (!res.success) {
+    toast(res.message, 'error');
+    return;
+  }
+
+  showReceipt(res.data);
+  cart = {};
+  document.getElementById('uangDibayar').value = '';
+  renderCart();
+  loadBarang(document.getElementById('searchInput').value);
+});
+
+function showReceipt(data) {
+  const now = new Date();
+  const itemsHtml = data.items.map(i => `
+    <div class="row"><span>${escapeHtml(i.nama_barang)} x${i.qty}</span><span>${formatRupiah(i.subtotal)}</span></div>
+  `).join('');
+
+  document.getElementById('receiptContent').innerHTML = `
+    <h3 style="text-align:center; margin-top:0;">STRUK PEMBAYARAN</h3>
+    <div style="text-align:center; margin-bottom:10px;">${now.toLocaleString('id-ID')}</div>
+    <hr>
+    ${itemsHtml}
+    <hr>
+    <div class="row"><strong>Total</strong><strong>${formatRupiah(data.total_harga)}</strong></div>
+    <div class="row"><span>Bayar</span><span>${formatRupiah(data.uang_dibayar)}</span></div>
+    <div class="row"><span>Kembalian</span><span>${formatRupiah(data.kembalian)}</span></div>
+    <hr>
+    <div style="text-align:center;">Terima kasih</div>
+  `;
+  document.getElementById('receiptModal').classList.add('show');
+}
+
+document.getElementById('btnCloseReceipt').addEventListener('click', () => {
+  document.getElementById('receiptModal').classList.remove('show');
+});
+
+(async () => {
+  const user = await initProtectedPage();
+  if (!user) return;
+  loadBarang();
+})();
+</script>
+</body>
+</html>

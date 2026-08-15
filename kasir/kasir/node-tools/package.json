@@ -1,0 +1,12 @@
+{
+  "name": "kasir-toko-report-cli",
+  "version": "1.0.0",
+  "description": "CLI Node.js untuk export laporan penjualan Kasir Toko ke CSV (fitur tambahan)",
+  "main": "export-report.js",
+  "scripts": {
+    "report": "node export-report.js"
+  },
+  "dependencies": {
+    "mysql2": "^3.10.0"
+  }
+}
