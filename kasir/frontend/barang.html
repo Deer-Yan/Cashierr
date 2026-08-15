@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Barang - Kasir Toko</title>
+<link rel="stylesheet" href="assets/css/style.css">
+</head>
+<body>
+<script>window.CURRENT_PAGE = 'barang.html';</script>
+<div class="app">
+  <aside class="sidebar" id="sidebar">
+    <div class="sidebar-brand">
+      <strong>Kasir Toko</strong>
+      <span id="sidebarRoleLabel"></span>
+    </div>
+    <nav id="sidebarNav"></nav>
+    <div class="sidebar-footer">
+      <div class="sidebar-user" id="sidebarUser"></div>
+      <button class="btn btn-danger btn-block" id="logoutBtn">Keluar</button>
+    </div>
+  </aside>
+
+  <main class="main">
+    <div class="topbar">
+      <div style="display:flex; align-items:center; gap:12px;">
+        <button class="hamburger" id="hamburger">Menu</button>
+        <div>
+          <h2>Barang</h2>
+          <p>Kelola daftar barang milik toko Anda</p>
+        </div>
+      </div>
+      <button class="btn btn-primary" id="btnAddBarang">+ Tambah Barang</button>
+    </div>
+
+    <div class="filter-row">
+      <input type="text" id="searchInput" placeholder="Cari nama barang...">
+    </div>
+
+    <div class="card">
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Foto</th>
+              <th>Nama Barang</th>
+              <th>Harga Modal</th>
+              <th>Harga Jual</th>
+              <th>Stok</th>
+              <th>Aksi</th>
+            </tr>
+          </thead>
+          <tbody id="barangTableBody">
+            <tr><td colspan="6" style="text-align:center; padding:30px; color:var(--text-muted);">Memuat data...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </main>
+</div>
+
+<!-- Modal Tambah/Edit Barang -->
+<div class="modal-overlay" id="barangModal">
+  <div class="modal-box">
+    <h3 id="modalTitle">Tambah Barang</h3>
+    <form id="barangForm">
+      <input type="hidden" id="barangId">
+      <div class="field">
+        <label>Nama Barang</label>
+        <input type="text" id="namaBarang" required placeholder="Contoh: Indomie Goreng">
+      </div>
+      <div class="field">
+        <label>Foto Barang</label>
+        <input type="file" id="fotoBarang" accept="image/*">
+        <img id="fotoPreview" style="margin-top:8px; max-width:100px; border-radius:8px; display:none;">
+      </div>
+      <div class="grid grid-2">
+        <div class="field">
+          <label>Harga Modal</label>
+          <input type="number" id="hargaModal" required min="0" placeholder="0">
+        </div>
+        <div class="field">
+          <label>Harga Jual</label>
+          <input type="number" id="hargaJual" required min="0" placeholder="0">
+        </div>
+      </div>
+      <div class="field">
+        <label>Stok</label>
+        <input type="number" id="stokBarang" required min="0" placeholder="0">
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="btn btn-outline" style="flex:1" id="btnCancel">Batal</button>
+        <button type="submit" class="btn btn-primary" style="flex:1" id="btnSubmit">Simpan</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script src="assets/js/config.js"></script>
+<script src="assets/js/app.js"></script>
+<script>
+let barangCache = [];
+const modal = document.getElementById('barangModal');
+const form = document.getElementById('barangForm');
+
+async function loadBarang(search = '') {
+  const url = 'api/barang_list.php' + (search ? '?search=' + encodeURIComponent(search) : '');
+  const res = await apiJson(url);
+  const tbody = document.getElementById('barangTableBody');
+  if (!res.success) {
+    tbody.innerHTML = `<tr><td colspan="6"><div class="empty-state">Gagal memuat barang.</div></td></tr>`;
+    toast(res.message || 'Gagal memuat barang.', 'error');
+    return;
+  }
+  if (res.data.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="6"><div class="empty-state">Belum ada barang${search ? ' yang cocok' : ''}.</div></td></tr>`;
+    return;
+  }
+  barangCache = res.data;
+  tbody.innerHTML = res.data.map(b => `
+    <tr>
+      <td>${b.foto ? `<img src="${uploadUrl(b.foto)}" class="thumb">` : `<div class="thumb" style="display:flex;align-items:center;justify-content:center; font-size:11px; color:var(--text-muted);">No image</div>`}</td>
+      <td><strong>${escapeHtml(b.nama_barang)}</strong></td>
+      <td>${formatRupiah(b.harga_modal)}</td>
+      <td>${formatRupiah(b.harga_jual)}</td>
+      <td>${stokBadge(b.stok)}</td>
+      <td>
+        <button class="btn btn-sm btn-secondary" onclick="editBarang(${b.id})">Edit</button>
+        <button class="btn btn-sm btn-danger" onclick="deleteBarang(${b.id})">Hapus</button>
+      </td>
+    </tr>
+  `).join('');
+}
+
+function stokBadge(stok) {
+  stok = parseInt(stok);
+  if (stok === 0) return `<span class="badge badge-danger">Habis</span>`;
+  if (stok <= 5) return `<span class="badge badge-warning">${stok} (menipis)</span>`;
+  return `<span class="badge badge-success">${stok}</span>`;
+}
+
+function escapeHtml(str) {
+  const div = document.createElement('div');
+  div.textContent = str;
+  return div.innerHTML;
+}
+
+function openModal(title = 'Tambah Barang') {
+  document.getElementById('modalTitle').textContent = title;
+  modal.classList.add('show');
+}
+function closeModal() {
+  modal.classList.remove('show');
+  form.reset();
+  document.getElementById('barangId').value = '';
+  document.getElementById('fotoPreview').style.display = 'none';
+}
+
+document.getElementById('btnAddBarang').addEventListener('click', () => openModal('Tambah Barang'));
+document.getElementById('btnCancel').addEventListener('click', closeModal);
+modal.addEventListener('click', (e) => { if (e.target === modal) closeModal(); });
+
+document.getElementById('fotoBarang').addEventListener('change', (e) => {
+  const file = e.target.files[0];
+  const preview = document.getElementById('fotoPreview');
+  if (file) {
+    preview.src = URL.createObjectURL(file);
+    preview.style.display = 'block';
+  }
+});
+
+window.editBarang = function (id) {
+  const b = barangCache.find(x => x.id == id);
+  if (!b) return;
+  document.getElementById('barangId').value = b.id;
+  document.getElementById('namaBarang').value = b.nama_barang;
+  document.getElementById('hargaModal').value = b.harga_modal;
+  document.getElementById('hargaJual').value = b.harga_jual;
+  document.getElementById('stokBarang').value = b.stok;
+  const preview = document.getElementById('fotoPreview');
+  if (b.foto) {
+    preview.src = uploadUrl(b.foto);
+    preview.style.display = 'block';
+  } else {
+    preview.style.display = 'none';
+  }
+  openModal('Edit Barang');
+};
+
+window.deleteBarang = async function (id) {
+  if (!confirm('Yakin ingin menghapus barang ini?')) return;
+  const res = await apiJson('api/barang_delete.php', 'POST', { id });
+  toast(res.message, res.success ? 'success' : 'error');
+  if (res.success) loadBarang(document.getElementById('searchInput').value);
+};
+
+form.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const btn = document.getElementById('btnSubmit');
+  btn.disabled = true; btn.textContent = 'Menyimpan...';
+
+  const fd = new FormData();
+  const id = document.getElementById('barangId').value;
+  if (id) fd.append('id', id);
+  fd.append('nama_barang', document.getElementById('namaBarang').value);
+  fd.append('harga_modal', document.getElementById('hargaModal').value);
+  fd.append('harga_jual', document.getElementById('hargaJual').value);
+  fd.append('stok', document.getElementById('stokBarang').value);
+  const fotoFile = document.getElementById('fotoBarang').files[0];
+  if (fotoFile) fd.append('foto', fotoFile);
+
+  const res = await apiForm('api/barang_save.php', fd);
+  toast(res.message, res.success ? 'success' : 'error');
+  if (res.success) {
+    closeModal();
+    loadBarang(document.getElementById('searchInput').value);
+  }
+  btn.disabled = false; btn.textContent = 'Simpan';
+});
+
+let searchTimer;
+document.getElementById('searchInput').addEventListener('input', (e) => {
+  clearTimeout(searchTimer);
+  searchTimer = setTimeout(() => loadBarang(e.target.value), 350);
+});
+
+(async () => {
+  const user = await initProtectedPage();
+  if (!user) return;
+  loadBarang();
+})();
+</script>
+</body>
+</html>
