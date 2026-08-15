@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Riwayat Penjualan - Kasir Toko</title>
+<link rel="stylesheet" href="assets/css/style.css">
+</head>
+<body>
+<script>window.CURRENT_PAGE = 'riwayat.html';</script>
+<div class="app">
+  <aside class="sidebar" id="sidebar">
+    <div class="sidebar-brand">
+      <strong>Kasir Toko</strong>
+      <span id="sidebarRoleLabel"></span>
+    </div>
+    <nav id="sidebarNav"></nav>
+    <div class="sidebar-footer">
+      <div class="sidebar-user" id="sidebarUser"></div>
+      <button class="btn btn-danger btn-block" id="logoutBtn">Keluar</button>
+    </div>
+  </aside>
+
+  <main class="main">
+    <div class="topbar">
+      <div style="display:flex; align-items:center; gap:12px;">
+        <button class="hamburger" id="hamburger">Menu</button>
+        <div>
+          <h2>Riwayat Penjualan</h2>
+          <p>Semua transaksi yang pernah dilakukan</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="filter-row">
+      <input type="date" id="filterTanggal">
+      <button class="btn btn-outline" id="btnReset">Reset Filter</button>
+      <button class="btn btn-secondary" id="btnExport">⬇️ Export CSV</button>
+    </div>
+
+    <div id="riwayatList">
+      <p style="color:var(--text-muted);">Memuat data...</p>
+    </div>
+  </main>
+</div>
+
+<script src="assets/js/config.js"></script>
+<script src="assets/js/app.js"></script>
+<script>
+let riwayatCache = [];
+
+async function loadRiwayat(tanggal = '') {
+  const url = 'api/riwayat_list.php' + (tanggal ? '?tanggal=' + tanggal : '');
+  const res = await apiJson(url);
+  const container = document.getElementById('riwayatList');
+
+  if (!res.success || res.data.length === 0) {
+    container.innerHTML = `<div class="card"><div class="empty-state">Belum ada riwayat transaksi.</div></div>`;
+    riwayatCache = [];
+    return;
+  }
+
+  riwayatCache = res.data;
+  container.innerHTML = res.data.map(p => `
+    <div class="card" style="margin-bottom:14px;">
+      <div style="display:flex; justify-content:space-between; align-items:flex-start; flex-wrap:wrap; gap:8px; margin-bottom:10px;">
+        <div>
+          <strong>#${p.id} — ${formatDateTime(p.created_at)}</strong>
+          <div style="font-size:12.5px; color:var(--text-muted);">${p.items.length} jenis barang</div>
+        </div>
+        <div style="text-align:right;">
+          <div style="font-weight:700; color:var(--primary); font-size:16px;">${formatRupiah(p.total_harga)}</div>
+          <div style="font-size:12px; color:var(--text-muted);">Bayar: ${formatRupiah(p.uang_dibayar)} · Kembali: ${formatRupiah(p.kembalian)}</div>
+        </div>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Barang</th><th>Harga</th><th>Qty</th><th>Subtotal</th></tr></thead>
+          <tbody>
+            ${p.items.map(i => `
+              <tr>
+                <td>${escapeHtml(i.nama_barang)}</td>
+                <td>${formatRupiah(i.harga_jual)}</td>
+                <td>${i.qty}</td>
+                <td>${formatRupiah(i.subtotal)}</td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  `).join('');
+}
+
+function escapeHtml(str) {
+  const div = document.createElement('div');
+  div.textContent = str;
+  return div.innerHTML;
+}
+
+document.getElementById('filterTanggal').addEventListener('change', (e) => {
+  loadRiwayat(e.target.value);
+});
+document.getElementById('btnReset').addEventListener('click', () => {
+  document.getElementById('filterTanggal').value = '';
+  loadRiwayat();
+});
+
+document.getElementById('btnExport').addEventListener('click', () => {
+  if (riwayatCache.length === 0) {
+    toast('Tidak ada data untuk diexport.', 'error');
+    return;
+  }
+  let csv = 'No Transaksi,Tanggal,Barang,Harga,Qty,Subtotal,Total Transaksi,Bayar,Kembalian\n';
+  riwayatCache.forEach(p => {
+    p.items.forEach(i => {
+      csv += `${p.id},"${p.created_at}","${i.nama_barang}",${i.harga_jual},${i.qty},${i.subtotal},${p.total_harga},${p.uang_dibayar},${p.kembalian}\n`;
+    });
+  });
+  const blob = new Blob([csv], { type: 'text/csv' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'riwayat_penjualan.csv';
+  a.click();
+  URL.revokeObjectURL(url);
+});
+
+(async () => {
+  const user = await initProtectedPage();
+  if (!user) return;
+  loadRiwayat();
+})();
+</script>
+</body>
+</html>
